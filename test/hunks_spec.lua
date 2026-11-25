@@ -337,6 +337,86 @@ btv.test.describe("change marks", function()
     end
   end)
 
+  btv.test.it("mark the buffers already on screen when installed late", function(t)
+    -- A plugin lazy-loaded on `:GitChanges` (or a key) installs after the files are open:
+    -- their `BufReadPost` / `BufWinEnter` are long gone, and nothing replays them.
+    open_repo_file(t)
+    t:feed("jcwB<Esc>")
+    local buf = t:buf()
+    -- A fresh copy of the module stands in for the plugin loading now; its handlers are
+    -- taken off and the original provider put back afterwards.
+    local old_mod = package.loaded["bemtvi-git.hunks"]
+    local old_p, at
+    for i, prov in ipairs(btv._decor.providers) do
+      if prov.name == "bemtvi-git.hunks" then
+        old_p, at = prov, i
+      end
+    end
+    local ids = {}
+    local real_on = btv.on
+    btv.on = function(...)
+      local id = real_on(...)
+      ids[#ids + 1] = id
+      return id
+    end
+    package.loaded["bemtvi-git.hunks"] = nil
+    local ok, err = pcall(function()
+      local fresh = require("bemtvi-git.hunks")
+      fresh.install()
+      btv.on = real_on
+      t:wait_for(function()
+        return fresh.get(buf) ~= nil
+      end, { tries = 300, interval = 10, message = "the shown buffer was never diffed" })
+    end)
+    btv.on = real_on
+    for _, id in ipairs(ids) do
+      btv.off(id)
+    end
+    package.loaded["bemtvi-git.hunks"] = old_mod
+    btv._decor.providers[at] = old_p
+    assert(ok, err)
+  end)
+
+  btv.test.it("leave special buffers to themselves: the provider never runs there", function(t)
+    -- Only a file buffer can have marks, so a quickfix list, a terminal or a view would
+    -- only cost a provider call and an empty publish on every repaint.
+    open_repo_file(t)
+    t:cmd("copen")
+    local p
+    for _, prov in ipairs(btv._decor.providers) do
+      if prov.name == "bemtvi-git.hunks" then
+        p = prov
+      end
+    end
+    local real = p.on_range
+    local calls = {}
+    p.on_range = function(ctx, publish)
+      calls[#calls + 1] = ctx.buftype
+      return real(ctx, publish)
+    end
+    local ok, err = pcall(function()
+      btv.decor.invalidate()
+      t:wait_for(function()
+        for _, bt in ipairs(calls) do
+          if bt == "" then
+            return true
+          end
+        end
+      end, { tries = 300, interval = 10, message = "the file window was never dispatched" })
+      t:idle()
+    end)
+    p.on_range = real
+    t:cmd("cclose")
+    assert(ok, err)
+    local special = {}
+    for _, bt in ipairs(calls) do
+      if bt ~= "" then
+        special[#special + 1] = bt
+      end
+    end
+    expect(special).to_equal({})
+  end)
+
   btv.test.it("mark an untracked file as all added", function(t)
     local dir = S.repo()
     local path = S.write(dir, "new.txt", "one\ntwo\n")

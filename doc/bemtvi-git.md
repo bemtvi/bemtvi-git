@@ -31,8 +31,12 @@ M  src/lib.rs            staged (or committed, against a base other than HEAD)
 A  src/new.rs            added
  D old.rs                deleted: listed, but there is nothing to open
 R  src/main.rs ← app.rs  renamed
+UU src/merge.rs          a merge conflict, in git's letters (UU, AA, DD, AU, ...)
 ?? notes/todo.md         untracked
 ```
+
+A file you stopped tracking with `git rm --cached` is two rows, as in `git status`: the staged
+deletion (`D `) and the file still on disk (`??`). Either one opens it.
 
 Untracked files are listed one by one, never as their directory, and stay below every tracked change
 even while you filter. The one exception is an untracked repository inside this one, which git
@@ -114,6 +118,9 @@ require("bemtvi-git").setup({
 A value set with `btv.o` or `btv.wso` wins over these defaults. An unknown or mistyped key is an
 error.
 
+Loaded lazily (a `btv.plugins` spec with `cmd = "GitChanges"`, say), the plugin marks the buffers
+already on screen as soon as it loads; the others get their marks when you show them.
+
 # Highlights
 
 Every group defaults to a colour of the active theme and yields to a colorscheme or a user
@@ -144,7 +151,7 @@ gc.list(dir)      -- promise of { root, files }: the rows the picker shows
 ```
 
 Each file in `list()` is `{ rel, path, index, worktree, orig, kind, mtime, dir }`: `path` is
-absolute and `nil` for a deleted file, `kind` is one of `added`, `modified`, `deleted`, `renamed`,
+absolute and `nil` for a file gone from the worktree, `kind` is one of `added`, `modified`, `deleted`, `renamed`,
 `conflict` or `untracked`, `mtime` is set on untracked files, and `dir` is `true` on an untracked
 nested repository. The picker source is registered as
 `git_changed`, so `btv.picker.open("git_changed")` works too.

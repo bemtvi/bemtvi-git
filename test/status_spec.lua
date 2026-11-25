@@ -62,6 +62,44 @@ btv.test.describe("status.list", function()
     expect(type(by["u.txt"].mtime)).to_be("number")
   end)
 
+  btv.test.it("opens the file a staged deletion left on disk, from either row", function()
+    -- `git rm --cached`: the deletion is staged and the file, still there, is untracked.
+    -- git lists the path twice; both rows name a file that exists.
+    local dir = S.repo()
+    S.git(dir, "rm", "-q", "--cached", "keep.txt")
+    local res = btv.await(status.list(dir))
+    local got = {}
+    for _, f in ipairs(res.files) do
+      got[#got + 1] = f.index .. f.worktree .. " " .. f.kind .. " " .. tostring(f.path)
+    end
+    local path = btv.utils.joinpath(res.root, "keep.txt")
+    expect(got).to_equal({ "D  deleted " .. path, "?? untracked " .. path })
+  end)
+
+  btv.test.it("gives no path for a conflict both sides deleted", function()
+    -- Renamed apart on two branches: the original path is deleted on both (`DD`) and is
+    -- gone from the worktree.
+    local dir = S.repo()
+    S.git(dir, "checkout", "-q", "-b", "other")
+    S.git(dir, "mv", "keep.txt", "theirs.txt")
+    S.git(dir, "commit", "-q", "-m", "theirs")
+    S.git(dir, "checkout", "-q", "main")
+    S.git(dir, "mv", "keep.txt", "ours.txt")
+    S.git(dir, "commit", "-q", "-m", "ours")
+    expect(pcall(S.git, dir, "merge", "-q", "other")).to_be(false)
+    local res = btv.await(status.list(dir))
+    local got = {}
+    for _, f in ipairs(res.files) do
+      local open = f.path ~= nil
+      got[#got + 1] = ("%s%s %s %s %s"):format(f.index, f.worktree, f.rel, f.kind, tostring(open))
+    end
+    expect(got).to_equal({
+      "DD keep.txt conflict false",
+      "AU ours.txt conflict true",
+      "UA theirs.txt conflict true",
+    })
+  end)
+
   btv.test.it("keeps an untracked symlink whose target is missing", function()
     -- git lists the link itself; that its target is gone does not make it less a change.
     local dir = S.repo()

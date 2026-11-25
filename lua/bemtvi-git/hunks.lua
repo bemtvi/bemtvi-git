@@ -10,8 +10,9 @@
 -- cached for the buffer, so scrolling costs no diff.
 --
 -- What refreshes a buffer: reading it, entering or showing it, editing it, writing it,
--- and, for the buffers on screen, the editor regaining the focus (a commit or checkout
--- made elsewhere moves the base) and a change of the base options.
+-- and, for the buffers on screen, the plugin installing (lazy-loaded after they opened),
+-- the editor regaining the focus (a commit or checkout made elsewhere moves the base) and
+-- a change of the base options.
 
 local status = require("bemtvi-git.status")
 
@@ -283,6 +284,9 @@ function M.install()
 
   btv.decor.provider({
     name = "bemtvi-git.hunks",
+    -- Only an ordinary buffer can have marks (see `buffer_source`): a terminal, a
+    -- quickfix list or a view would cost a call and an empty publish on every repaint.
+    bufs = { buftype = { "" } },
     on_range = function(ctx, publish)
       local hunks = M.get(ctx.buf)
       if not hunks then
@@ -316,6 +320,9 @@ function M.install()
   btv.on("BufDelete", function(a)
     forget(a.buf)
   end)
+  -- Installed late (a plugin lazy-loaded on `:GitChanges` or a key), the buffers already
+  -- on screen had their read and display events before these handlers existed.
+  refresh_shown()
 end
 
 -- Repaint every buffer with the cached hunks (a display option changed).

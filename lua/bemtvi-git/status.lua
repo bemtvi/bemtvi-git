@@ -54,7 +54,7 @@ end
 --
 -- ```
 -- rel        repo-relative path ("/"-separated)
--- path       absolute path, nil for a file deleted from the worktree
+-- path       absolute path, nil for a file gone from the worktree
 -- index      porcelain X letter
 -- worktree   porcelain Y letter
 -- orig       the source path of a rename, "" otherwise
@@ -87,8 +87,10 @@ M.list = btv.async(function(dir, base)
       orig = e.orig_path or "",
       kind = kind,
     }
-    if kind == "deleted" then
-      f.path = nil -- gone from the worktree: nothing to preview or open
+    if kind == "deleted" or (e.index == "D" and e.worktree == "D") then
+      -- Gone from the worktree: nothing to preview or open. (A staged deletion of a file
+      -- still on disk gets its path back below, from the untracked row git adds for it.)
+      f.path = nil
     end
     if kind == "untracked" then
       untracked[#untracked + 1] = f
@@ -130,6 +132,18 @@ M.list = btv.async(function(dir, base)
       f.mtime = info.mtime
       f.dir = info.type == "directory" or nil
       live[#live + 1] = f
+    end
+  end
+
+  -- `git rm --cached`: the staged deletion (`D `) and the file left on disk (`??`) are
+  -- two rows for one path, and the file is there to open from either.
+  local on_disk = {}
+  for _, f in ipairs(live) do
+    on_disk[f.rel] = f.path
+  end
+  for _, f in ipairs(tracked) do
+    if f.path == nil and f.kind == "deleted" then
+      f.path = on_disk[f.rel]
     end
   end
 
