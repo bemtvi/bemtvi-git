@@ -60,6 +60,8 @@ end
 -- orig       the source path of a rename, "" otherwise
 -- kind       added | modified | deleted | renamed | conflict | untracked
 -- mtime      modification time in seconds (untracked files only)
+-- dir        true for an untracked directory: a nested repository, which git lists
+--            as one entry rather than walking into it
 -- ```
 --
 -- Rejects with the `btv.git` error (`ENOREPO` outside a repository, `ENOENT` for a
@@ -95,21 +97,38 @@ M.list = btv.async(function(dir, base)
     end
   end
 
-  -- Stat every untracked file at once. One that vanished since the status walk is no
-  -- longer a change, so it is dropped.
+  -- Stat every untracked file at once, the link itself for a symlink (a dangling one is
+  -- still a change). One that vanished since the status walk is no longer a change, so
+  -- it is dropped. The replies are gathered with a counter rather than a promise per
+  -- file plus `btv.promise.all`: on a repository with tens of thousands of untracked
+  -- files that bookkeeping is a real share of the cost.
   local stats = {}
-  for i, f in ipairs(untracked) do
-    stats[i] = btv.fs.stat(f.path):next(function(s)
-      return s.mtime
-    end, function()
-      return false
-    end)
-  end
-  local mtimes = btv.await(btv.promise.all(stats))
+  btv.await(btv.promise.new(function(resolve)
+    local left = #untracked
+    if left == 0 then
+      return resolve()
+    end
+    local function settle(i, info)
+      stats[i] = info
+      left = left - 1
+      if left == 0 then
+        resolve()
+      end
+    end
+    for i, f in ipairs(untracked) do
+      btv.fs.lstat(f.path):next(function(info)
+        settle(i, info)
+      end, function()
+        settle(i, false)
+      end)
+    end
+  end))
   local live = {}
   for i, f in ipairs(untracked) do
-    if mtimes[i] then
-      f.mtime = mtimes[i]
+    local info = stats[i]
+    if info then
+      f.mtime = info.mtime
+      f.dir = info.type == "directory" or nil
       live[#live + 1] = f
     end
   end

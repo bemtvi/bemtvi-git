@@ -35,7 +35,9 @@ R  src/main.rs ← app.rs  renamed
 ```
 
 Untracked files are listed one by one, never as their directory, and stay below every tracked change
-even while you filter. The preview pane shows the highlighted file; `<CR>` opens it in the main
+even while you filter. The one exception is an untracked repository inside this one, which git
+does not walk into: it is one row spelled with a trailing slash (`?? vendor/lib/`), and `<CR>`
+opens its directory listing. The preview pane shows the highlighted file; `<CR>` opens it in the main
 editor area (`<C-t>` / `<C-x>` / `<C-v>` in a tab or split, as in every picker). The picker lists
 the repository that contains the editor's working directory (`:pwd`).
 
@@ -59,9 +61,10 @@ marks catch up on the next edit, write or buffer switch.
 
 A file that is not in the base (a new or untracked file) is all added lines. A git-ignored file
 (build output, a local `.env`) gets no marks, nor do a buffer with no file, a special buffer, and a
-file outside any repository. A file in an encoding
-other than UTF-8 gets none either, and the plugin says so once: its text in the editor and its
-bytes at the base would not compare.
+file outside any repository. A file in an encoding other than UTF-8 gets none either, and the
+plugin says so once: its text in the editor and its bytes at the base would not compare. The same
+goes for a file with old Mac line endings (`'fileformat'` is `mac`): git splits lines on LF only,
+so to git the whole file is one line, and its changes would not land on the editor's rows.
 
 Turn either half off with an option:
 
@@ -140,7 +143,8 @@ gc.pick(opts)     -- open the picker; opts are btv.picker.open overrides
 gc.list(dir)      -- promise of { root, files }: the rows the picker shows
 ```
 
-Each file in `list()` is `{ rel, path, index, worktree, orig, kind, mtime }`: `path` is absolute
-and `nil` for a deleted file, `kind` is one of `added`, `modified`, `deleted`, `renamed`, `conflict`
-or `untracked`, and `mtime` is set on untracked files. The picker source is registered as
+Each file in `list()` is `{ rel, path, index, worktree, orig, kind, mtime, dir }`: `path` is
+absolute and `nil` for a deleted file, `kind` is one of `added`, `modified`, `deleted`, `renamed`,
+`conflict` or `untracked`, `mtime` is set on untracked files, and `dir` is `true` on an untracked
+nested repository. The picker source is registered as
 `git_changed`, so `btv.picker.open("git_changed")` works too.

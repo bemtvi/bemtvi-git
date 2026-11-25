@@ -68,6 +68,21 @@ btv.test.describe("git_changed picker", function()
     expect(t:lines()).to_equal({ "one", "TWO", "three" })
   end)
 
+  btv.test.it("shows an untracked repository as a directory, and opens its listing", function(t)
+    local dir = S.repo()
+    local nested = btv.utils.joinpath(dir, "nested")
+    S.write(nested, "x.txt", "x\n")
+    S.git(nested, "init", "-q", "-b", "main")
+    local m = open(t, dir, 1)
+    -- `git status` spells it `nested/`: a directory, not a file to edit.
+    expect(m.items).to_equal({ "?? nested/" })
+    t:feed("<CR>")
+    t:wait_for(function()
+      return btv.bo[0].filetype == "btvdir"
+    end, { tries = 300, interval = 10, message = "the directory listing never opened" })
+    expect(btv.utils.basename(btv.buf.name(0))).to_be("nested")
+  end)
+
   btv.test.it("says a deleted file cannot be opened instead of opening it", function(t)
     local dir = S.repo()
     btv.await(btv.fs.remove(btv.utils.joinpath(dir, "gone.txt")))

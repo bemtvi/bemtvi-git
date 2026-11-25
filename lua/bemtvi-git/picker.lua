@@ -26,6 +26,9 @@ end
 -- The row for one file.
 function M.row(f)
   local text = f.rel
+  if f.dir then
+    text = text .. "/" -- git's own spelling of a nested repository
+  end
   if f.orig ~= "" then
     text = text .. " ← " .. f.orig
   end

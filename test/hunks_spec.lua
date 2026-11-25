@@ -205,6 +205,101 @@ btv.test.describe("change marks", function()
     expect(#said).to_be(1)
   end)
 
+  btv.test.it("say each distinct error once, even when buffers alternate", function(t)
+    local dir = S.repo()
+    t:cmd("edit " .. btv.utils.joinpath(dir, "keep.txt"))
+    t:cmd("split " .. btv.utils.joinpath(dir, "mod.txt"))
+    local said = {}
+    local real = btv.notify
+    btv.notify = function(msg, level, ...)
+      if type(msg) == "string" and msg:find("bemtvi-git: ", 1, true) == 1 then
+        said[#said + 1] = msg
+      end
+      return real(msg, level, ...)
+    end
+    local real_diff = btv.git.diff_file
+    local diffed = 0
+    -- Each file fails with its own message, so the two buffers' errors alternate.
+    btv.git.diff_file = function(_, file)
+      diffed = diffed + 1
+      return btv.promise.reject({
+        code = "EIO",
+        message = "cannot read " .. btv.utils.basename(file),
+      })
+    end
+    local ok, err = pcall(function()
+      for _ = 1, 3 do
+        local before = diffed
+        btv.autocmd.exec("FocusGained", {})
+        t:wait_for(function()
+          return diffed >= before + 2
+        end, {
+          tries = 300,
+          interval = 10,
+          message = "FocusGained did not diff both buffers",
+        })
+        btv.await(btv.promise.delay(50))
+        t:idle()
+      end
+    end)
+    btv.notify = real
+    btv.git.diff_file = real_diff
+    assert(ok, err)
+    table.sort(said)
+    expect(said).to_equal({ "bemtvi-git: cannot read keep.txt", "bemtvi-git: cannot read mod.txt" })
+  end)
+
+  btv.test.it("keep no state for a buffer refreshed after it is gone", function(t)
+    open_repo_file(t)
+    local buf = t:buf()
+    t:wait_for(function()
+      return hunks.is_ignored(buf) == false
+    end, { tries = 300, interval = 10, message = "f.txt was never diffed" })
+    t:cmd("enew")
+    t:cmd("bwipeout! " .. buf)
+    expect(hunks._tracked(buf)).to_be(false)
+    hunks.refresh(buf) -- a late refresh: an event queued before the wipe, say
+    btv.await(btv.promise.delay(hunks.DEBOUNCE_MS * 3))
+    t:idle()
+    expect(hunks._tracked(buf)).to_be(false)
+  end)
+
+  btv.test.it("mark no lines in a file with mac line endings, and say why once", function(t)
+    -- git splits lines on `\n` only: to it, a `\r`-separated file is one long line, so its
+    -- hunks would not land on the buffer's rows.
+    local dir = S.repo()
+    local path = S.write(dir, "mac.txt", "a\rb\rc\r")
+    S.git(dir, "add", "mac.txt")
+    S.git(dir, "commit", "-q", "-m", "mac")
+    local said = {}
+    local real = btv.notify
+    btv.notify = function(msg, level, ...)
+      if type(msg) == "string" and msg:find("bemtvi-git: ", 1, true) == 1 then
+        said[#said + 1] = msg
+      end
+      return real(msg, level, ...)
+    end
+    local ok, err = pcall(function()
+      t:cmd("edit " .. path)
+      expect(btv.bo[0].fileformat).to_be("mac")
+      t:feed("jcwB<Esc>")
+      t:wait_for(function()
+        return #said > 0
+      end, { tries = 300, interval = 10, message = "the mac file was never named" })
+      btv.await(btv.promise.delay(hunks.DEBOUNCE_MS * 2))
+      t:idle()
+    end)
+    btv.notify = real
+    assert(ok, err)
+    expect(said).to_equal({
+      "bemtvi-git: no change marks for "
+        .. path
+        .. ": its line endings are mac (CR), not unix or dos",
+    })
+    expect(hunks.get(t:buf())).to_be_nil()
+    expect(marks(t, 3)).to_equal({ "..", "..", ".." })
+  end)
+
   btv.test.it("mark a file opened by a relative name", function(t)
     local dir = open_repo_file(t)
     t:cmd("bwipeout!")
@@ -262,28 +357,65 @@ btv.test.describe("hunks.marks", function()
 
   btv.test.it("costs the rows asked for, not the size of the hunk", function()
     -- A huge untracked file is one hunk spanning every line; painting a screenful of it
-    -- must not walk all of them.
+    -- must not walk all of them. Walking 20M rows takes seconds, a screenful well under a
+    -- millisecond: the fastest of several runs keeps a loaded machine from failing it.
     local h = { { old_start = 0, old_count = 0, new_start = 1, new_count = 20000000 } }
-    local t0 = os.clock()
-    local out = hunks.marks(h, 1000, 1049, { line_count = 20000000 })
-    expect(#out).to_be(50)
-    expect(os.clock() - t0 < 0.05).to_be(true)
+    local best = math.huge
+    for _ = 1, 5 do
+      local t0 = os.clock()
+      local out = hunks.marks(h, 1000, 1049, { line_count = 20000000 })
+      best = math.min(best, os.clock() - t0)
+      expect(#out).to_be(50)
+      if best < 0.05 then
+        break
+      end
+    end
+    expect(best < 0.05).to_be(true)
   end)
 
-  btv.test.it("costs the hunks on screen, not every hunk in the buffer", function()
-    -- A reformatted file: a changed line every other line, all the way down.
+  btv.test.it("reads the hunks on screen, not every hunk in the buffer", function()
+    -- A reformatted file: a changed line every other line, all the way down. The hunks
+    -- are counted as they are read, which no machine's load can skew.
     local h = {}
     for i = 1, 300000 do
       h[i] = { old_start = 2 * i, old_count = 1, new_start = 2 * i, new_count = 1 }
     end
-    local t0 = os.clock()
-    local out = hunks.marks(h, 1000, 1009, { line_count = 600001 })
-    local elapsed = os.clock() - t0
+    local reads = 0
+    local counted = setmetatable({}, {
+      __index = function(_, i)
+        reads = reads + 1
+        return h[i]
+      end,
+      __len = function()
+        return #h
+      end,
+    })
     local rows = {}
-    for _, m in ipairs(out) do
+    for _, m in ipairs(hunks.marks(counted, 1000, 1009, { line_count = 600001 })) do
       rows[#rows + 1] = m[1]
     end
     expect(rows).to_equal({ 1001, 1003, 1005, 1007, 1009 })
-    expect(elapsed < 0.05).to_be(true)
+    -- A bisection (~19 reads for 300k hunks) plus the handful on screen.
+    expect(reads <= 40).to_be(true)
+  end)
+
+  btv.test.it("finds the right hunks at the edges of the buffer", function()
+    local h = {
+      { old_start = 1, old_count = 1, new_start = 0, new_count = 0 }, -- removed the top
+      { old_start = 4, old_count = 1, new_start = 3, new_count = 1 }, -- changed row 2
+      { old_start = 9, old_count = 2, new_start = 7, new_count = 0 }, -- removed the end
+    }
+    local function rows(top, bot)
+      local out = {}
+      for _, m in ipairs(hunks.marks(h, top, bot, { line_count = 7 })) do
+        out[#out + 1] = m[1] .. m.sign_text
+      end
+      return out
+    end
+    expect(rows(0, 6)).to_equal({ "0‾", "2▎", "6_" })
+    expect(rows(0, 0)).to_equal({ "0‾" })
+    expect(rows(1, 5)).to_equal({ "2▎" })
+    expect(rows(6, 6)).to_equal({ "6_" })
+    expect(rows(3, 5)).to_equal({})
   end)
 end)

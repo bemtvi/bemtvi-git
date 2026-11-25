@@ -62,6 +62,14 @@ btv.test.describe("status.list", function()
     expect(type(by["u.txt"].mtime)).to_be("number")
   end)
 
+  btv.test.it("keeps an untracked symlink whose target is missing", function()
+    -- git lists the link itself; that its target is gone does not make it less a change.
+    local dir = S.repo()
+    local r = btv.await(btv.run({ cmd = "ln", args = { "-s", "nowhere", "dangling" }, cwd = dir }))
+    assert(r.code == 0, r.stderr)
+    expect(rows(dir)).to_equal({ "?? dangling" })
+  end)
+
   btv.test.it("compares against git.base, and its merge base on request", function()
     local dir = S.repo()
     S.git(dir, "checkout", "-q", "-b", "feature")

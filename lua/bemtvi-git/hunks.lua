@@ -28,6 +28,19 @@ local state = {}
 -- buf -> true once the plugin has said why it cannot mark that buffer.
 local told = {}
 
+-- message -> true for each diff error already said. A set, not the last message: two
+-- buffers failing differently would otherwise each say theirs again on every refresh.
+-- Emptied when the base changes, so an error the new base gives too is said again.
+local said = {}
+
+-- Say `what` once per buffer: why the plugin leaves it unmarked.
+local function tell_once(buf, what)
+  if not told[buf] then
+    told[buf] = true
+    btv.notify(PREFIX .. what, btv.log.levels.WARN)
+  end
+end
+
 local function buffer_state(buf)
   local s = state[buf]
   if not s then
@@ -38,9 +51,13 @@ local function buffer_state(buf)
 end
 
 -- The buffer's file and the bytes git would compare, or nil when the buffer is not one
--- the plugin marks (no file, a special buffer). A buffer whose file is in an encoding
--- other than UTF-8 is skipped and said so once: its text here is UTF-8, its blob at the
--- base is not, so every non-ASCII line would read as changed.
+-- the plugin marks (no file, a special buffer). Two kinds of file are skipped, and said
+-- so once:
+--
+-- - one in an encoding other than UTF-8: its text here is UTF-8, its blob at the base
+--   is not, so every non-ASCII line would read as changed;
+-- - one with mac (CR) line endings: git splits lines on LF only, so to it the file is
+--   one long line, and its hunks would not land on the buffer's rows.
 local function buffer_source(buf)
   if not btv.buf.is_valid(buf) or btv.bo[buf].buftype ~= "" then
     return nil
@@ -51,17 +68,19 @@ local function buffer_source(buf)
   end
   local enc = btv.bo[buf].fileencoding
   if enc ~= "" and enc ~= "utf-8" then
-    if not told[buf] then
-      told[buf] = true
-      btv.notify(
-        PREFIX .. "no change marks for " .. name .. ": its encoding is " .. enc .. ", not utf-8",
-        btv.log.levels.WARN
-      )
-    end
+    tell_once(buf, "no change marks for " .. name .. ": its encoding is " .. enc .. ", not utf-8")
+    return nil
+  end
+  local ff = btv.bo[buf].fileformat
+  if ff == "mac" then
+    tell_once(
+      buf,
+      "no change marks for " .. name .. ": its line endings are mac (CR), not unix or dos"
+    )
     return nil
   end
   local lines = btv.buf.lines(buf, 0, -1)
-  local eol = btv.bo[buf].fileformat == "dos" and "\r\n" or "\n"
+  local eol = ff == "dos" and "\r\n" or "\n"
   local text = table.concat(lines, eol)
   if btv.bo[buf].endofline ~= false and #lines > 0 then
     text = text .. eol
@@ -72,8 +91,22 @@ local function buffer_source(buf)
   return name, text
 end
 
+-- Drop everything kept for `buf`, and any refresh it has pending.
+local function forget(buf)
+  local s = state[buf]
+  if s and s.refresh then
+    s.refresh:cancel()
+  end
+  state[buf] = nil
+  told[buf] = nil
+end
+
 -- Diff `buf` now and repaint it when the answer lands.
 local refresh_now = btv.async(function(buf)
+  if not btv.buf.is_valid(buf) then
+    forget(buf) -- a late refresh of a buffer already gone: keep nothing for it
+    return
+  end
   local s = buffer_state(buf)
   s.seq = s.seq + 1
   local seq = s.seq
@@ -103,8 +136,8 @@ local refresh_now = btv.async(function(buf)
     -- does not resolve) is said, once per distinct message.
     if not (type(res) == "table" and res.code == "ENOREPO") then
       local msg = type(res) == "table" and (res.message or res.code) or tostring(res)
-      if M._last_error ~= msg then
-        M._last_error = msg
+      if not said[msg] then
+        said[msg] = true
         btv.notify(PREFIX .. msg, btv.log.levels.ERROR)
       end
     end
@@ -145,17 +178,8 @@ end
 -- Refresh after the base options changed: the buffers on screen, and an error the old
 -- base gave is said again if the new one gives it too.
 function M.refresh_all()
-  M._last_error = nil
+  said = {}
   refresh_shown()
-end
-
-local function forget(buf)
-  local s = state[buf]
-  if s and s.refresh then
-    s.refresh:cancel()
-  end
-  state[buf] = nil
-  told[buf] = nil
 end
 
 -- The cached hunks of `buf` (`{ old_start, old_count, new_start, new_count }` each, the
@@ -163,6 +187,12 @@ end
 function M.get(buf)
   local s = state[buf]
   return s and s.hunks
+end
+
+-- Whether the plugin holds any state for `buf` (for the specs: a buffer gone from the
+-- editor must leave none behind).
+function M._tracked(buf)
+  return state[buf] ~= nil
 end
 
 -- Whether the last diff of `buf` found its file git-ignored: `true` / `false`, or nil
