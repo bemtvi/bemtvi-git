@@ -1,4 +1,4 @@
--- bemtvi-git-changes.highlights — the plugin's colours, derived from the active theme.
+-- bemtvi-git.highlights — the plugin's colours, derived from the active theme.
 --
 -- Every group is installed with `btv.hl.fallback`, so a colorscheme (or the user) that
 -- defines one keeps it, and the defaults are re-derived from `btv.hl.palette()` on every

@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
 #
-# Generate doc/bemtvi-git-changes.txt (the vimdoc help file) from doc/bemtvi-git-changes.md using
+# Generate doc/bemtvi-git.txt (the vimdoc help file) from doc/bemtvi-git.md using
 # panvimdoc <https://github.com/kdheepak/panvimdoc> (MIT, Dheepak Krishnamurthy).
 # panvimdoc drives pandoc to do all the vimdoc column math — right-aligned *tags*,
 # the table of contents, and tw=78 reflow — so the help file is never hand-aligned.
-# Edit doc/bemtvi-git-changes.md, then run this.
+# Edit doc/bemtvi-git.md, then run this.
 #
 # Requires: bash, git, pandoc (>= 3). panvimdoc is fetched on first run into a
 # gitignored .panvimdoc/ cache, pinned to the SHA below.
 set -euo pipefail
 
 # --- per-plugin settings -----------------------------------------------------
-PROJECT="bemtvi-git-changes"                                          # → :help bemtvi-git-changes
-DESCRIPTION="Changed files picker and per-buffer git hunk marks for bemtvi"  # header tagline
+PROJECT="bemtvi-git"                                          # → :help bemtvi-git
+DESCRIPTION="Git integration for bemtvi"  # header tagline
 # -----------------------------------------------------------------------------
 
 INPUT="doc/${PROJECT}.md"

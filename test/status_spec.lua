@@ -2,9 +2,9 @@
 
 local here = btv.utils.dirname(debug.getinfo(1, "S").source:sub(2))
 local S = dofile(btv.utils.joinpath(here, "support.lua"))
-local status = require("bemtvi-git-changes.status")
+local status = require("bemtvi-git.status")
 
-require("bemtvi-git-changes").setup({})
+require("bemtvi-git").setup({})
 
 local expect = btv.test.expect
 
@@ -62,7 +62,7 @@ btv.test.describe("status.list", function()
     expect(type(by["u.txt"].mtime)).to_be("number")
   end)
 
-  btv.test.it("compares against gitchanges.base, and its merge base on request", function()
+  btv.test.it("compares against git.base, and its merge base on request", function()
     local dir = S.repo()
     S.git(dir, "checkout", "-q", "-b", "feature")
     S.write(dir, "mod.txt", "one\nTWO\nthree\n")
@@ -75,15 +75,15 @@ btv.test.describe("status.list", function()
     -- Default base: HEAD, nothing changed.
     expect(rows(dir)).to_equal({})
 
-    btv.o["gitchanges.base"] = "main"
+    btv.o["git.base"] = "main"
     expect(rows(dir)).to_equal({ "M  keep.txt", "M  mod.txt" })
 
-    btv.o["gitchanges.merge_base"] = true
+    btv.o["git.merge_base"] = true
     expect(rows(dir)).to_equal({ "M  mod.txt" })
 
     -- A workspace override wins over the global value.
-    btv.wso["gitchanges.base"] = "HEAD"
-    btv.wso["gitchanges.merge_base"] = false
+    btv.wso["git.base"] = "HEAD"
+    btv.wso["git.merge_base"] = false
     expect(rows(dir)).to_equal({})
   end)
 

@@ -1,16 +1,16 @@
--- bemtvi-git-changes.picker — the `git_changed` picker source.
+-- bemtvi-git.picker — the `git_changed` picker source.
 --
 -- One row per changed file: the porcelain `XY` letters as the row's tag, the
 -- repo-relative path as its text, coloured by the kind of change. Untracked files are
 -- pushed as `low` rows, which the picker keeps below every tracked change even while
 -- you filter, in the newest-first order `status.list` gives them.
 
-local status = require("bemtvi-git-changes.status")
-local highlights = require("bemtvi-git-changes.highlights")
+local status = require("bemtvi-git.status")
+local highlights = require("bemtvi-git.highlights")
 
 local M = {}
 
-local PREFIX = "bemtvi-git-changes: "
+local PREFIX = "bemtvi-git: "
 
 -- Report a failed listing. Outside a repository is a plain warning; anything else (a
 -- base revision that does not resolve) is an error naming it.

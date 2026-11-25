@@ -1,4 +1,4 @@
--- bemtvi-git-changes.status — the changed-file list the picker shows, read through
+-- bemtvi-git.status — the changed-file list the picker shows, read through
 -- `btv.git.status` against the configured diff base.
 --
 -- Tracked changes come first, sorted by path. Untracked files follow, each listed on
@@ -36,8 +36,8 @@ end
 -- override wins over the global value).
 function M.base()
   return {
-    rev = btv.o["gitchanges.base"],
-    merge_base = btv.o["gitchanges.merge_base"],
+    rev = btv.o["git.base"],
+    merge_base = btv.o["git.merge_base"],
   }
 end
 

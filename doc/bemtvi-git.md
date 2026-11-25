@@ -1,17 +1,18 @@
-<!-- DO NOT EDIT doc/bemtvi-git-changes.txt BY HAND. It is generated from this file by
+<!-- DO NOT EDIT doc/bemtvi-git.txt BY HAND. It is generated from this file by
 panvimdoc — run `scripts/gen-vimdoc.sh` after editing. -->
 
-What changed in your repository, against a diff base you choose. `:GitChanges` opens a picker of
-every changed file: staged, unstaged, deleted and renamed files first, then untracked files, newest
+Git integration for bemtvi. Its features compare against one diff base you choose.
+
+`:GitChanges` opens a picker of every changed file: staged, unstaged, deleted and renamed files first, then untracked files, newest
 first, so the file you just created is the first untracked row.
 
 The diff base is `HEAD` unless you say otherwise, and it is a workspace option: a workspace for a
 branch under review can compare against `origin/main` while every other session keeps `HEAD`.
 
-<!-- Passed through verbatim so `:help bemtvi-git-changes` lands on this page (panvimdoc
+<!-- Passed through verbatim so `:help bemtvi-git` lands on this page (panvimdoc
      derives per-section tags but no bare project tag). -->
 ```vimdoc
-                                    *bemtvi-git-changes* *bemtvi-git-changes-intro*
+                                    *bemtvi-git* *bemtvi-git-intro*
 ```
 
 # Commands
@@ -42,22 +43,22 @@ the repository that contains the editor's working directory (`:pwd`).
 Two options decide what "changed" means:
 
 ```
-gitchanges.base         the revision to compare against           default "HEAD"
-gitchanges.merge_base   compare against the merge base of          default false
-                        gitchanges.base and HEAD instead
+git.base         the revision to compare against           default "HEAD"
+git.merge_base   compare against the merge base of          default false
+                        git.base and HEAD instead
 ```
 
 Set them like any option, for every session or for one workspace:
 
 ```lua
-btv.o["gitchanges.base"] = "main"                -- everywhere
-btv.wso["gitchanges.base"] = "origin/main"       -- this workspace only, saved with it
-btv.wso["gitchanges.merge_base"] = true
+btv.o["git.base"] = "main"                -- everywhere
+btv.wso["git.base"] = "origin/main"       -- this workspace only, saved with it
+btv.wso["git.merge_base"] = true
 ```
 
 Against a base other than `HEAD`, a file you committed on your branch counts as changed, as do
 staged and worktree edits. With `merge_base`, the base is where your branch forked from
-`gitchanges.base` (what `git diff origin/main...` compares against), so commits that landed on
+`git.base` (what `git diff origin/main...` compares against), so commits that landed on
 `origin/main` after you branched do not show up as changes of yours. A base that does not resolve is
 reported by name.
 
@@ -66,9 +67,9 @@ reported by name.
 The plugin sets itself up when it loads. Call `setup()` to change the options' defaults:
 
 ```lua
-require("bemtvi-git-changes").setup({
-  base = "HEAD",        -- default for gitchanges.base
-  merge_base = false,   -- default for gitchanges.merge_base
+require("bemtvi-git").setup({
+  base = "HEAD",        -- default for git.base
+  merge_base = false,   -- default for git.merge_base
 })
 ```
 
@@ -92,7 +93,7 @@ GitChangesUntracked   picker row of an untracked file
 # Lua API
 
 ```lua
-local gc = require("bemtvi-git-changes")
+local gc = require("bemtvi-git")
 gc.pick(opts)     -- open the picker; opts are btv.picker.open overrides
 gc.list(dir)      -- promise of { root, files }: the rows the picker shows
 ```

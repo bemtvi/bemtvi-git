@@ -3,7 +3,7 @@
 local here = btv.utils.dirname(debug.getinfo(1, "S").source:sub(2))
 local S = dofile(btv.utils.joinpath(here, "support.lua"))
 
-require("bemtvi-git-changes").setup({})
+require("bemtvi-git").setup({})
 
 local expect = btv.test.expect
 
@@ -21,8 +21,8 @@ end
 local function notice(t)
   return t:wait_for(function()
     local m = t:message()
-    return m:match("^bemtvi%-git%-changes:") and m or nil
-  end, { tries = 300, interval = 10, message = "no bemtvi-git-changes notification" })
+    return m:match("^bemtvi%-git:") and m or nil
+  end, { tries = 300, interval = 10, message = "no bemtvi-git notification" })
 end
 
 btv.test.describe("git_changed picker", function()
@@ -74,7 +74,7 @@ btv.test.describe("git_changed picker", function()
     local before = t:buf()
     open(t, dir, 1)
     t:feed("<CR>")
-    expect(notice(t)).to_be("bemtvi-git-changes: gone.txt is deleted; there is nothing to open")
+    expect(notice(t)).to_be("bemtvi-git: gone.txt is deleted; there is nothing to open")
     expect(t:buf()).to_be(before)
   end)
 
@@ -83,8 +83,8 @@ btv.test.describe("git_changed picker", function()
     S.git(dir, "checkout", "-q", "-b", "feature")
     S.write(dir, "mod.txt", "feature\n")
     S.git(dir, "commit", "-q", "-am", "feature work")
-    btv.wso["gitchanges.base"] = "main"
-    btv.wso["gitchanges.merge_base"] = true
+    btv.wso["git.base"] = "main"
+    btv.wso["git.merge_base"] = true
     local m = open(t, dir, 1)
     expect(m.items).to_equal({ "M  mod.txt" })
     expect(m.title).to_be("Git Changes (vs merge base of main)")
@@ -93,7 +93,7 @@ btv.test.describe("git_changed picker", function()
 
   btv.test.it("names a base that does not resolve", function(t)
     local dir = S.repo()
-    btv.o["gitchanges.base"] = "origin/nope"
+    btv.o["git.base"] = "origin/nope"
     t:cmd("cd " .. dir)
     t:cmd("GitChanges")
     expect(notice(t):find("origin/nope", 1, true) ~= nil).to_be(true)
@@ -103,7 +103,7 @@ btv.test.describe("git_changed picker", function()
   btv.test.it("warns outside a repository", function(t)
     t:cmd("cd " .. btv.test.tempdir())
     t:cmd("GitChanges")
-    expect(notice(t)).to_be("bemtvi-git-changes: not inside a git repository")
+    expect(notice(t)).to_be("bemtvi-git: not inside a git repository")
     t:feed("<Esc>")
   end)
 end)
