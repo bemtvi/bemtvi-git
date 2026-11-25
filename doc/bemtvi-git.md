@@ -56,8 +56,9 @@ write a buffer, and when the editor gets the focus back, so a commit or checkout
 terminal shows up when you return. A commit made from bemtvi's own `:terminal` does not move the
 focus; the marks catch up on the next edit, write or buffer switch.
 
-A file that is not in the base (a new or untracked file) is all added lines. A buffer with no
-file, a special buffer, and a file outside any repository get no marks. A file in an encoding
+A file that is not in the base (a new or untracked file) is all added lines. A git-ignored file
+(build output, a local `.env`) gets no marks, nor do a buffer with no file, a special buffer, and a
+file outside any repository. A file in an encoding
 other than UTF-8 gets none either, and the plugin says so once: its text in the editor and its
 bytes at the base would not compare.
 

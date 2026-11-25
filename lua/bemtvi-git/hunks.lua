@@ -92,9 +92,13 @@ local refresh_now = btv.async(function(buf)
     return -- overtaken by a newer refresh, or the buffer is gone
   end
   if ok then
-    s.hunks = res.hunks
+    -- A git-ignored file (build output, a local `.env`) is not part of the repository's
+    -- changes: marking it all added would only be noise.
+    s.hunks = not res.ignored and res.hunks or nil
+    s.ignored = res.ignored == true
   else
     s.hunks = nil
+    s.ignored = nil
     -- Outside a repository there is simply nothing to mark. Anything else (a base that
     -- does not resolve) is said, once per distinct message.
     if not (type(res) == "table" and res.code == "ENOREPO") then
@@ -146,6 +150,13 @@ end
 function M.get(buf)
   local s = state[buf]
   return s and s.hunks
+end
+
+-- Whether the last diff of `buf` found its file git-ignored: `true` / `false`, or nil
+-- while unknown (not diffed yet, outside a repository, no file).
+function M.is_ignored(buf)
+  local s = state[buf]
+  return s and s.ignored
 end
 
 -- The marks for rows `top`..`bot` (0-based, inclusive) of a buffer with `hunks`.

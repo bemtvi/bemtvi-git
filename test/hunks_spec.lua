@@ -145,6 +145,24 @@ btv.test.describe("change marks", function()
     expect(marks(t, 2)).to_equal({ "..", ".." })
   end)
 
+  btv.test.it("mark nothing in a git-ignored file", function(t)
+    local dir = S.repo()
+    S.write(dir, ".gitignore", "*.log\nbuild/\n")
+    S.git(dir, "add", ".gitignore")
+    S.git(dir, "commit", "-q", "-m", "ignore")
+    for _, rel in ipairs({ "noise.log", "build/out.txt" }) do
+      local path = S.write(dir, rel, "x\ny\n")
+      t:cmd("edit " .. path)
+      t:feed("ccchanged<Esc>")
+      t:wait_for(function()
+        return hunks.is_ignored(t:buf()) == true
+      end, { tries = 300, interval = 10, message = rel .. " was never diffed as ignored" })
+      t:idle()
+      expect(hunks.get(t:buf())).to_be_nil()
+      expect(marks(t, 2)).to_equal({ "..", ".." })
+    end
+  end)
+
   btv.test.it("mark an untracked file as all added", function(t)
     local dir = S.repo()
     local path = S.write(dir, "new.txt", "one\ntwo\n")
