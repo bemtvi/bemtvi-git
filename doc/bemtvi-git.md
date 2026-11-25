@@ -51,10 +51,11 @@ Every file buffer in a repository shows how it differs from the diff base, line 
 ```
 
 The marks follow the buffer as you type: what is compared is the text in the buffer, unsaved
-edits included, against the file at the diff base. They refresh when you read, enter, edit or
-write a buffer, and when the editor gets the focus back, so a commit or checkout made in another
-terminal shows up when you return. A commit made from bemtvi's own `:terminal` does not move the
-focus; the marks catch up on the next edit, write or buffer switch.
+edits included, against the file at the diff base. They refresh when you read, enter, show, edit
+or write a buffer, and the buffers on screen refresh when the editor gets the focus back, so a
+commit or checkout made in another terminal shows up when you return (a hidden buffer catches up
+when you show it again). A commit made from bemtvi's own `:terminal` does not move the focus; the
+marks catch up on the next edit, write or buffer switch.
 
 A file that is not in the base (a new or untracked file) is all added lines. A git-ignored file
 (build output, a local `.env`) gets no marks, nor do a buffer with no file, a special buffer, and a
@@ -95,7 +96,8 @@ reported by name.
 
 # Configuration
 
-The plugin sets itself up when it loads. Call `setup()` to change the options' defaults:
+The plugin sets itself up when it loads, unless your config has already called `setup()`. Call
+`setup()` to change the options' defaults, from your `init.lua` or a `btv.plugins` `config`:
 
 ```lua
 require("bemtvi-git").setup({

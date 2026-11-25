@@ -36,6 +36,7 @@ local OPTS = {
 }
 
 local installed = false
+local configured = false
 
 -- `setup(opts)`: install the options, the picker and `:GitChanges`. Idempotent.
 --
@@ -57,6 +58,9 @@ function M.setup(opts)
       error("bemtvi-git.setup: " .. k .. " must be a " .. OPTS[k] .. ", got " .. type(v), 2)
     end
   end
+  -- Only a setup() that got past its validation counts: after a mistyped one, the
+  -- auto-setup still installs the plugin with its defaults.
+  configured = true
 
   btv.option.define("git.base", {
     type = "string",
@@ -93,6 +97,15 @@ function M.setup(opts)
   if not installed then
     installed = true
     btv.on("ColorScheme", {}, highlights.apply)
+  end
+end
+
+-- The `plugin/` script's auto-setup: `setup({})` unless a setup() already ran. An
+-- unmanaged plugin's `plugin/` scripts run after `init.lua`, so re-applying the empty
+-- options there would reset the defaults the user's own setup() just gave.
+function M._autoload()
+  if not configured then
+    M.setup({})
   end
 end
 

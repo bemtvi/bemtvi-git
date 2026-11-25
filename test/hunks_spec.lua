@@ -126,6 +126,85 @@ btv.test.describe("change marks", function()
     expect_marks(t, { "..", ".#" }, "backgrounds only")
   end)
 
+  btv.test.it("leave hidden buffers alone when the focus comes back", function(t)
+    local dir = S.repo()
+    local hidden = S.write(dir, "hidden.txt", "h\n")
+    local shown = S.write(dir, "shown.txt", "s\n")
+    S.git(dir, "add", "-A")
+    S.git(dir, "commit", "-q", "-m", "two")
+    t:cmd("edit " .. hidden)
+    t:cmd("edit " .. shown)
+    t:wait_for(function()
+      return hunks.is_ignored(t:buf()) == false
+    end, { tries = 300, interval = 10, message = "shown.txt was never diffed" })
+    local diffed = {}
+    local real = btv.git.diff_file
+    btv.git.diff_file = function(p, file, o)
+      diffed[#diffed + 1] = btv.utils.basename(file)
+      return real(p, file, o)
+    end
+    local ok, err = pcall(function()
+      btv.autocmd.exec("FocusGained", {})
+      t:wait_for(function()
+        return #diffed > 0
+      end, { tries = 300, interval = 10, message = "nothing was diffed on FocusGained" })
+      btv.await(btv.promise.delay(hunks.DEBOUNCE_MS * 2))
+      t:idle()
+    end)
+    btv.git.diff_file = real
+    assert(ok, err)
+    expect(diffed).to_equal({ "shown.txt" })
+  end)
+
+  btv.test.it("catch a hidden buffer up when it is shown again", function(t)
+    local dir, path = open_repo_file(t)
+    t:feed("jcwB<Esc>:w<CR>")
+    expect_marks(t, { "..", "▎#", "..", "..", ".." }, "the saved change")
+    local other = S.write(dir, "other.txt", "o\n")
+    t:cmd("edit " .. other)
+    S.git(dir, "commit", "-q", "-am", "commit it outside")
+    btv.autocmd.exec("FocusGained", {})
+    t:cmd("edit " .. path)
+    expect_marks(t, { "..", "..", "..", "..", ".." }, "committed: nothing changed against HEAD")
+  end)
+
+  btv.test.it("name a base that does not resolve once, not on every focus change", function(t)
+    open_repo_file(t)
+    local said = {}
+    local real = btv.notify
+    btv.notify = function(msg, level, ...)
+      if type(msg) == "string" and msg:find("bemtvi-git: ", 1, true) == 1 then
+        said[#said + 1] = msg
+      end
+      return real(msg, level, ...)
+    end
+    local real_diff = btv.git.diff_file
+    local diffed = false
+    btv.git.diff_file = function(...)
+      diffed = true
+      return real_diff(...)
+    end
+    local ok, err = pcall(function()
+      btv.o["git.base"] = "no-such-rev"
+      t:wait_for(function()
+        return #said > 0
+      end, { tries = 300, interval = 10, message = "the bad base was never named" })
+      for _ = 1, 2 do
+        diffed = false
+        btv.autocmd.exec("FocusGained", {})
+        t:wait_for(function()
+          return diffed
+        end, { tries = 300, interval = 10, message = "FocusGained diffed nothing" })
+        btv.await(btv.promise.delay(50))
+        t:idle()
+      end
+    end)
+    btv.notify = real
+    btv.git.diff_file = real_diff
+    assert(ok, err)
+    expect(#said).to_be(1)
+  end)
+
   btv.test.it("mark a file opened by a relative name", function(t)
     local dir = open_repo_file(t)
     t:cmd("bwipeout!")
@@ -179,5 +258,32 @@ btv.test.describe("hunks.marks", function()
       rows[#rows + 1] = m[1]
     end
     expect(rows).to_equal({ 3, 4 })
+  end)
+
+  btv.test.it("costs the rows asked for, not the size of the hunk", function()
+    -- A huge untracked file is one hunk spanning every line; painting a screenful of it
+    -- must not walk all of them.
+    local h = { { old_start = 0, old_count = 0, new_start = 1, new_count = 20000000 } }
+    local t0 = os.clock()
+    local out = hunks.marks(h, 1000, 1049, { line_count = 20000000 })
+    expect(#out).to_be(50)
+    expect(os.clock() - t0 < 0.05).to_be(true)
+  end)
+
+  btv.test.it("costs the hunks on screen, not every hunk in the buffer", function()
+    -- A reformatted file: a changed line every other line, all the way down.
+    local h = {}
+    for i = 1, 300000 do
+      h[i] = { old_start = 2 * i, old_count = 1, new_start = 2 * i, new_count = 1 }
+    end
+    local t0 = os.clock()
+    local out = hunks.marks(h, 1000, 1009, { line_count = 600001 })
+    local elapsed = os.clock() - t0
+    local rows = {}
+    for _, m in ipairs(out) do
+      rows[#rows + 1] = m[1]
+    end
+    expect(rows).to_equal({ 1001, 1003, 1005, 1007, 1009 })
+    expect(elapsed < 0.05).to_be(true)
   end)
 end)

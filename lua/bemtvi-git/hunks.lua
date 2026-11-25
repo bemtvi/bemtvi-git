@@ -9,9 +9,9 @@
 -- Painting is a `btv.decor.provider`: it draws only the visible rows, from the hunks
 -- cached for the buffer, so scrolling costs no diff.
 --
--- What refreshes a buffer: reading it, entering it, editing it, writing it, the editor
--- regaining the focus (a commit or checkout made elsewhere moves the base), and a change
--- of the base options.
+-- What refreshes a buffer: reading it, entering or showing it, editing it, writing it,
+-- and, for the buffers on screen, the editor regaining the focus (a commit or checkout
+-- made elsewhere moves the base) and a change of the base options.
 
 local status = require("bemtvi-git.status")
 
@@ -128,12 +128,25 @@ function M.refresh(buf)
   s.refresh()
 end
 
--- Refresh every loaded buffer (the base or the repository moved under all of them).
+-- Refresh the buffers on screen. A hidden buffer is left alone: it is refreshed when it
+-- is shown again (`BufEnter`, `BufWinEnter`), so this costs the buffers in view, not
+-- every one open.
+local function refresh_shown()
+  local seen = {}
+  for _, win in ipairs(btv.win.list()) do
+    local buf = btv.win.buf(win)
+    if buf and not seen[buf] then
+      seen[buf] = true
+      M.refresh(buf)
+    end
+  end
+end
+
+-- Refresh after the base options changed: the buffers on screen, and an error the old
+-- base gave is said again if the new one gives it too.
 function M.refresh_all()
   M._last_error = nil
-  for _, buf in ipairs(btv.buf.list()) do
-    M.refresh(buf)
-  end
+  refresh_shown()
 end
 
 local function forget(buf)
@@ -185,7 +198,26 @@ function M.marks(hunks, top, bot, opts)
       out[#out + 1] = m
     end
   end
-  for _, h in ipairs(hunks or {}) do
+  hunks = hunks or {}
+  -- The hunks are in buffer order and do not overlap, so the first one that can reach
+  -- `top` is found by bisection and the walk stops past `bot`: a paint costs the hunks
+  -- on screen, not every hunk in the buffer. No hunk marks a row past
+  -- `new_start + max(new_count, 1) - 1`, nor one before `new_start - 1`.
+  local lo, hi = 1, #hunks + 1
+  while lo < hi do
+    local mid = (lo + hi) // 2
+    local h = hunks[mid]
+    if h.new_start + math.max(h.new_count, 1) - 1 < top then
+      lo = mid + 1
+    else
+      hi = mid
+    end
+  end
+  for i = lo, #hunks do
+    local h = hunks[i]
+    if h.new_start - 1 > bot then
+      break
+    end
     if h.new_count == 0 then
       -- `new_start` is the line before the removal (0 when it removed the top).
       local below = h.new_start -- 0-based row of the line after the removal
@@ -196,7 +228,10 @@ function M.marks(hunks, top, bot, opts)
       end
     else
       local add = h.old_count == 0
-      for r = h.new_start - 1, h.new_start + h.new_count - 2 do
+      -- Only the rows on screen: a huge hunk (a whole untracked file) costs a screenful.
+      local first = math.max(h.new_start - 1, top)
+      local last = math.min(h.new_start + h.new_count - 2, bot)
+      for r = first, last do
         if add then
           mark(r, "▎", "GitChangesAddSign", "GitChangesAddLine")
         else
@@ -232,7 +267,8 @@ function M.install()
     end,
   })
 
-  for _, ev in ipairs({ "BufReadPost", "BufNewFile", "BufEnter", "BufWritePost" }) do
+  local events = { "BufReadPost", "BufNewFile", "BufEnter", "BufWinEnter", "BufWritePost" }
+  for _, ev in ipairs(events) do
     btv.on(ev, function(a)
       M.refresh(a.buf)
     end)
@@ -242,8 +278,10 @@ function M.install()
       M.refresh(a.buf)
     end)
   end
+  -- A commit or checkout made elsewhere may have moved the base. An error already said
+  -- (a base that does not resolve) is not said again on every return to the editor.
   btv.on("FocusGained", function()
-    M.refresh_all()
+    refresh_shown()
   end)
   btv.on("BufDelete", function(a)
     forget(a.buf)
