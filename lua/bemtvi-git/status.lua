@@ -70,10 +70,13 @@ M.list = btv.async(function(dir, base)
   base = base or M.base()
   local disc = btv.await(btv.git.discover(dir))
   local root = disc.root
+  -- `mtime = true` dates and types each untracked entry inside the same op, so a
+  -- repository with thousands of untracked files costs one call, not one stat each.
   local st = btv.await(btv.git.status(root, {
     untracked = "all",
     rev = base.rev,
     merge_base = base.merge_base,
+    mtime = true,
   }))
 
   local tracked, untracked = {}, {}
@@ -93,44 +96,55 @@ M.list = btv.async(function(dir, base)
       f.path = nil
     end
     if kind == "untracked" then
+      f.mtime = e.mtime
+      f.dir = e.type == "directory" or nil
       untracked[#untracked + 1] = f
     else
       tracked[#tracked + 1] = f
     end
   end
 
-  -- Stat every untracked file at once, the link itself for a symlink (a dangling one is
-  -- still a change). One that vanished since the status walk is no longer a change, so
-  -- it is dropped. The replies are gathered with a counter rather than a promise per
-  -- file plus `btv.promise.all`: on a repository with tens of thousands of untracked
-  -- files that bookkeeping is a real share of the cost.
-  local stats = {}
+  -- An entry status could not date is stat-ed here: on a current engine that is only a
+  -- file that vanished during the walk (its stat fails and it is dropped, being no longer
+  -- a change); an older engine or daemon dates none, and then every untracked file is
+  -- stat-ed. `lstat`, so a symlink is dated itself (a dangling one is still a change).
+  -- The replies are gathered with a counter rather than a promise per file plus
+  -- `btv.promise.all`, which is a real share of the cost on tens of thousands of files.
+  local undated = {}
+  for _, f in ipairs(untracked) do
+    if f.mtime == nil then
+      undated[#undated + 1] = f
+    end
+  end
+  local gone = {}
   btv.await(btv.promise.new(function(resolve)
-    local left = #untracked
+    local left = #undated
     if left == 0 then
       return resolve()
     end
-    local function settle(i, info)
-      stats[i] = info
+    local function settle(f, info)
+      if info then
+        f.mtime = info.mtime
+        f.dir = info.type == "directory" or nil
+      else
+        gone[f] = true
+      end
       left = left - 1
       if left == 0 then
         resolve()
       end
     end
-    for i, f in ipairs(untracked) do
+    for _, f in ipairs(undated) do
       btv.fs.lstat(f.path):next(function(info)
-        settle(i, info)
+        settle(f, info)
       end, function()
-        settle(i, false)
+        settle(f, false)
       end)
     end
   end))
   local live = {}
-  for i, f in ipairs(untracked) do
-    local info = stats[i]
-    if info then
-      f.mtime = info.mtime
-      f.dir = info.type == "directory" or nil
+  for _, f in ipairs(untracked) do
+    if not gone[f] then
       live[#live + 1] = f
     end
   end

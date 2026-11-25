@@ -147,3 +147,58 @@ btv.test.describe("status.list", function()
     expect(err.code).to_be("ENOREPO")
   end)
 end)
+
+btv.test.describe("status.list untracked dates", function()
+  -- Wrap a `btv` function for the duration of `fn`, counting its calls.
+  local function counting(tbl, key, fn)
+    local orig, calls = tbl[key], 0
+    tbl[key] = function(...)
+      calls = calls + 1
+      return orig(...)
+    end
+    local ok, err = pcall(fn)
+    tbl[key] = orig
+    if not ok then
+      error(err, 0)
+    end
+    return calls
+  end
+
+  btv.test.it("takes the dates from status, with no stat per file", function()
+    local dir = S.repo()
+    for i = 1, 30 do
+      S.write(dir, ("u%02d.txt"):format(i), "x\n")
+    end
+    S.touch(dir, "u07.txt", "203001010000")
+    local res
+    local calls = counting(btv.fs, "lstat", function()
+      res = btv.await(status.list(dir))
+    end)
+    expect(calls).to_be(0)
+    expect(#res.files).to_be(30)
+    expect(res.files[1].rel).to_be("u07.txt")
+  end)
+
+  btv.test.it("falls back to a stat per file when status gives no dates", function()
+    local dir = S.repo()
+    S.write(dir, "older.txt", "o\n")
+    S.write(dir, "newer.txt", "n\n")
+    S.touch(dir, "older.txt", "202001010000")
+    S.touch(dir, "newer.txt", "202301010000")
+    -- An older engine (or daemon) ignores `mtime = true` and leaves the fields out.
+    local orig = btv.git.status
+    btv.git.status = function(path, opts)
+      return orig(path, opts):next(function(st)
+        for _, e in ipairs(st.entries) do
+          e.mtime, e.type = nil, nil
+        end
+        return st
+      end)
+    end
+    local ok, res = pcall(btv.await, status.list(dir))
+    btv.git.status = orig
+    expect(ok).to_be(true)
+    expect(res.files[1].rel).to_be("newer.txt")
+    expect(res.files[2].rel).to_be("older.txt")
+  end)
+end)
