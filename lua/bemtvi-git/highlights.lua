@@ -17,6 +17,13 @@ function M.defaults()
     GitChangesRenamed = { fg = p.purple },
     GitChangesConflict = { fg = p.orange, bold = true },
     GitChangesUntracked = { fg = p.yellow },
+    -- Change marks in a buffer: the gutter signs, and the full-width line backgrounds
+    -- (each accent faded into the theme's background, dim enough to keep text legible).
+    GitChangesAddSign = { fg = p.green },
+    GitChangesChangeSign = { fg = p.blue },
+    GitChangesDeleteSign = { fg = p.red },
+    GitChangesAddLine = { bg = btv.hl.blend(p.green, p.bg, 0.15) },
+    GitChangesChangeLine = { bg = btv.hl.blend(p.blue, p.bg, 0.15) },
   }
 end
 

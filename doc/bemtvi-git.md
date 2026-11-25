@@ -4,7 +4,8 @@ panvimdoc — run `scripts/gen-vimdoc.sh` after editing. -->
 Git integration for bemtvi. Its features compare against one diff base you choose.
 
 `:GitChanges` opens a picker of every changed file: staged, unstaged, deleted and renamed files first, then untracked files, newest
-first, so the file you just created is the first untracked row.
+first, so the file you just created is the first untracked row. In every buffer, added, changed
+and removed lines are marked in the gutter and with a line background, as you type.
 
 The diff base is `HEAD` unless you say otherwise, and it is a workspace option: a workspace for a
 branch under review can compare against `origin/main` while every other session keeps `HEAD`.
@@ -38,9 +39,38 @@ even while you filter. The preview pane shows the highlighted file; `<CR>` opens
 editor area (`<C-t>` / `<C-x>` / `<C-v>` in a tab or split, as in every picker). The picker lists
 the repository that contains the editor's working directory (`:pwd`).
 
+# Change marks
+
+Every file buffer in a repository shows how it differs from the diff base, line by line:
+
+```
+▎  an added line      green sign, green line background
+▎  a changed line     blue sign, blue line background
+‾  removed lines      red sign on the line below the removal (a removal at the
+                      end of the file marks the line above it with _)
+```
+
+The marks follow the buffer as you type: what is compared is the text in the buffer, unsaved
+edits included, against the file at the diff base. They refresh when you read, enter, edit or
+write a buffer, and when the editor gets the focus back, so a commit or checkout made in another
+terminal shows up when you return. A commit made from bemtvi's own `:terminal` does not move the
+focus; the marks catch up on the next edit, write or buffer switch.
+
+A file that is not in the base (a new or untracked file) is all added lines. A buffer with no
+file, a special buffer, and a file outside any repository get no marks. A file in an encoding
+other than UTF-8 gets none either, and the plugin says so once: its text in the editor and its
+bytes at the base would not compare.
+
+Turn either half off with an option:
+
+```lua
+btv.o["git.change_signs"] = false   -- no gutter signs
+btv.o["git.change_lines"] = false   -- no line backgrounds
+```
+
 # Diff base
 
-Two options decide what "changed" means:
+Two options decide what "changed" means, for the picker and the change marks alike:
 
 ```
 git.base         the revision to compare against           default "HEAD"
@@ -68,8 +98,10 @@ The plugin sets itself up when it loads. Call `setup()` to change the options' d
 
 ```lua
 require("bemtvi-git").setup({
-  base = "HEAD",        -- default for git.base
-  merge_base = false,   -- default for git.merge_base
+  base = "HEAD",          -- default for git.base
+  merge_base = false,     -- default for git.merge_base
+  change_signs = true,    -- default for git.change_signs
+  change_lines = true,    -- default for git.change_lines
 })
 ```
 
@@ -88,7 +120,14 @@ GitChangesDeleted     picker row of a deleted file
 GitChangesRenamed     picker row of a renamed file
 GitChangesConflict    picker row of a conflicted file
 GitChangesUntracked   picker row of an untracked file
+GitChangesAddSign     gutter sign of an added line
+GitChangesChangeSign  gutter sign of a changed line
+GitChangesDeleteSign  gutter sign of removed lines
+GitChangesAddLine     line background of an added line
+GitChangesChangeLine  line background of a changed line
 ```
+
+The line backgrounds are each accent faded into the theme's background, so text stays legible.
 
 # Lua API
 
