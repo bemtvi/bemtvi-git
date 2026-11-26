@@ -1,16 +1,18 @@
 -- bemtvi-git.hunks — added / changed / removed lines in every buffer, against the diff
 -- base, as a gutter sign and a full-width line background.
 --
--- The diff runs on the buffer's text as it is now, unsaved edits included: each
--- refresh hands `btv.git.diff_file` the buffer's content with the base, and the diff
--- itself runs off the editor tick (daemon-side in a remote session). A refresh is
+-- The diff runs on the buffer as it is now, unsaved edits included: each refresh asks
+-- `btv.git.diff_file` to diff the buffer itself (`buf`), so the editor builds the bytes
+-- (as a write would save them) without a copy of the text passing through Lua, and the
+-- diff runs off the editor tick (daemon-side in a remote session). A refresh is
 -- debounced per buffer, and a reply that a newer refresh has overtaken is dropped.
 --
 -- Painting is a `btv.decor.provider`: it draws only the visible rows, from the hunks
 -- cached for the buffer, so scrolling costs no diff.
 --
--- What refreshes a buffer: reading it, entering or showing it, editing it, writing it,
--- and, for the buffers on screen, the plugin installing (lazy-loaded after they opened),
+-- What refreshes a buffer: reading it, entering or showing it, editing it, writing it, a
+-- change of an option that decides what a write saves (`OptionSet`), and, for the buffers
+-- on screen, the plugin installing (lazy-loaded after they opened),
 -- the editor regaining the focus (a commit or checkout made elsewhere moves the base) and
 -- a change of the base options.
 
@@ -51,15 +53,13 @@ local function buffer_state(buf)
   return s
 end
 
--- The buffer's file and the bytes git would compare, or nil when the buffer is not one
--- the plugin marks (no file, a special buffer). Two kinds of file are skipped, and said
--- so once:
---
--- - one in an encoding other than UTF-8: its text here is UTF-8, its blob at the base
---   is not, so every non-ASCII line would read as changed;
--- - one with mac (CR) line endings: git splits lines on LF only, so to it the file is
---   one long line, and its hunks would not land on the buffer's rows.
-local function buffer_source(buf)
+-- The buffer's file, or nil when the buffer is not one the plugin marks (no file, a
+-- special buffer). The editor builds the bytes to compare from the buffer itself
+-- (`diff_file`'s `buf`), as a write would save them: line endings, encoding and BOM
+-- included. One kind of file is skipped, and said so once: mac (CR) line endings. git
+-- splits lines on LF only, so to it such a file is one long line, and its hunks would not
+-- land on the buffer's rows.
+local function buffer_file(buf)
   if not btv.buf.is_valid(buf) or btv.bo[buf].buftype ~= "" then
     return nil
   end
@@ -67,32 +67,17 @@ local function buffer_source(buf)
   if name == nil or name == "" then
     return nil
   end
-  local enc = btv.bo[buf].fileencoding
-  if enc ~= "" and enc ~= "utf-8" then
-    tell_once(buf, "no change marks for " .. name .. ": its encoding is " .. enc .. ", not utf-8")
-    return nil
-  end
-  local ff = btv.bo[buf].fileformat
-  if ff == "mac" then
+  if btv.bo[buf].fileformat == "mac" then
     tell_once(
       buf,
       "no change marks for " .. name .. ": its line endings are mac (CR), not unix or dos"
     )
     return nil
   end
-  local lines = btv.buf.lines(buf, 0, -1)
-  local eol = ff == "dos" and "\r\n" or "\n"
-  local text = table.concat(lines, eol)
-  if btv.bo[buf].endofline ~= false and #lines > 0 then
-    text = text .. eol
-  end
-  if btv.bo[buf].bomb then
-    text = "\239\187\191" .. text
-  end
-  return name, text
+  return name
 end
 
--- Drop everything kept for `buf`, and any refresh it has pending.
+-- Drop everything kept for `buf` (it was deleted, or a late event arrived for it).
 local function forget(buf)
   local s = state[buf]
   if s and s.refresh then
@@ -102,7 +87,6 @@ local function forget(buf)
   told[buf] = nil
 end
 
--- Diff `buf` now and repaint it when the answer lands.
 local refresh_now = btv.async(function(buf)
   if not btv.buf.is_valid(buf) then
     forget(buf) -- a late refresh of a buffer already gone: keep nothing for it
@@ -111,7 +95,7 @@ local refresh_now = btv.async(function(buf)
   local s = buffer_state(buf)
   s.seq = s.seq + 1
   local seq = s.seq
-  local name, text = buffer_source(buf)
+  local name = buffer_file(buf)
   if not name then
     s.hunks = nil
     btv.decor.invalidate({ buf = buf })
@@ -120,7 +104,7 @@ local refresh_now = btv.async(function(buf)
   local base = status.base()
   local ok, res = pcall(
     btv.await,
-    btv.git.diff_file(name, name, { rev = base.rev, merge_base = base.merge_base, text = text })
+    btv.git.diff_file(name, name, { rev = base.rev, merge_base = base.merge_base, buf = buf })
   )
   if state[buf] ~= s or s.seq ~= seq then
     return -- overtaken by a newer refresh, or the buffer is gone
@@ -152,6 +136,12 @@ end)
 function M.refresh(buf)
   if buf == nil or buf == 0 then
     buf = btv.buf.current()
+  end
+  -- An event for a buffer already gone (an `OptionSet` queued before a wipe) has
+  -- nothing to refresh, and must not bring its state back.
+  if not btv.buf.is_valid(buf) then
+    forget(buf)
+    return
   end
   local s = buffer_state(buf)
   if not s.refresh then
@@ -314,6 +304,17 @@ function M.install()
   end
   -- A commit or checkout made elsewhere may have moved the base. An error already said
   -- (a base that does not resolve) is not said again on every return to the editor.
+  -- The options that decide what a write saves (and so what is compared) change the marks
+  -- without touching the text; and a fileformat change can make a skipped file markable.
+  btv.on("OptionSet", {
+    pattern = { "fileformat", "fileencoding", "bomb", "endofline", "fixendofline" },
+  }, function(a)
+    local buf = a.data and a.data.buf
+    if a.data and a.data.scope == "local" and buf then
+      told[buf] = nil
+      M.refresh(buf)
+    end
+  end)
   btv.on("FocusGained", function()
     refresh_shown()
   end)

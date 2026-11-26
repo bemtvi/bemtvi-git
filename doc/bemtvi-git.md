@@ -56,19 +56,21 @@ Every file buffer in a repository shows how it differs from the diff base, line 
                       end of the file marks the line above it with _)
 ```
 
-The marks follow the buffer as you type: what is compared is the text in the buffer, unsaved
-edits included, against the file at the diff base. They refresh when you read, enter, show, edit
-or write a buffer, and the buffers on screen refresh when the editor gets the focus back, so a
+The marks follow the buffer as you type: what is compared is the buffer as a write would save it,
+unsaved edits included (in its own line endings and encoding), against the file at the diff base.
+They refresh when you read, enter, show, edit or write a buffer, when you change one of the
+options that decide what a write saves (`'fileformat'`, `'fileencoding'`, `'bomb'`,
+`'endofline'`, `'fixendofline'`), and the buffers on screen refresh when the editor gets the focus back, so a
 commit or checkout made in another terminal shows up when you return (a hidden buffer catches up
 when you show it again). A commit made from bemtvi's own `:terminal` does not move the focus; the
 marks catch up on the next edit, write or buffer switch.
 
 A file that is not in the base (a new or untracked file) is all added lines. A git-ignored file
 (build output, a local `.env`) gets no marks, nor do a buffer with no file, a special buffer, and a
-file outside any repository. A file in an encoding other than UTF-8 gets none either, and the
-plugin says so once: its text in the editor and its bytes at the base would not compare. The same
-goes for a file with old Mac line endings (`'fileformat'` is `mac`): git splits lines on LF only,
-so to git the whole file is one line, and its changes would not land on the editor's rows.
+file outside any repository. A file with old Mac line endings (`'fileformat'` is `mac`) gets none
+either, and the plugin says so once: git splits lines on LF only, so to git the whole file is one
+line, and its changes would not land on the editor's rows. A file in another encoding (latin1, a
+BOM) is compared in that encoding, so only the lines you changed are marked.
 
 Turn either half off with an option:
 

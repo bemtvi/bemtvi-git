@@ -264,6 +264,48 @@ btv.test.describe("change marks", function()
     expect(hunks._tracked(buf)).to_be(false)
   end)
 
+  btv.test.it("mark a latin1 file in its own encoding", function(t)
+    -- Compared through the file's own bytes: an edit to one line is one changed line,
+    -- and the untouched accented line stays clean.
+    local dir = S.repo()
+    local path = btv.utils.joinpath(dir, "l1.txt")
+    btv.await(btv.fs.write(path, "caf\233\nna\239ve\n"))
+    S.git(dir, "add", "l1.txt")
+    S.git(dir, "commit", "-q", "-m", "latin1")
+    t:cmd("edit ++enc=latin1 " .. path)
+    expect(btv.bo[0].fileencoding).to_be("latin1")
+    t:feed("ggA!<Esc>")
+    expect_marks(t, { "▎#", ".." }, "the edited line only")
+  end)
+
+  btv.test.it("diff a buffer without reading its lines into Lua", function(t)
+    open_repo_file(t)
+    local reads = 0
+    local real = btv.buf.lines
+    btv.buf.lines = function(...)
+      reads = reads + 1
+      return real(...)
+    end
+    local ok, err = pcall(function()
+      t:feed("jcwB<Esc>")
+      expect_marks(t, { "..", "▎#", "..", "..", ".." }, "a changed line")
+    end)
+    btv.buf.lines = real
+    assert(ok, err)
+    expect(reads).to_be(0)
+  end)
+
+  btv.test.it("follow a change of the saved bytes' options without an edit", function(t)
+    -- `bomb` changes only what a write would save (a BOM before the first line), so no
+    -- text event fires; `OptionSet` is what tells the marks.
+    open_repo_file(t)
+    expect_marks(t, { "..", "..", "..", "..", ".." }, "a clean file")
+    t:cmd("setlocal bomb")
+    expect_marks(t, { "▎#", "..", "..", "..", ".." }, "the BOM changes the first line")
+    t:cmd("setlocal nobomb")
+    expect_marks(t, { "..", "..", "..", "..", ".." }, "and clean again without it")
+  end)
+
   btv.test.it("mark no lines in a file with mac line endings, and say why once", function(t)
     -- git splits lines on `\n` only: to it, a `\r`-separated file is one long line, so its
     -- hunks would not land on the buffer's rows.
